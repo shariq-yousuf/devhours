@@ -28,7 +28,7 @@ const VSCODE_STORAGE = path.join(
 )
 // ────────────────────────────────────────────────────────────────────────────
 
-// ── Check if VS Code main window is running ──────────────────────────────────
+// ── Lightweight check: is VS Code running? ────────────────────────────────────
 function isVSCodeRunning() {
     try {
         if (process.platform === 'win32') {
@@ -36,48 +36,40 @@ function isVSCodeRunning() {
                 stdio: ['ignore', 'pipe', 'ignore'],
             }).toString()
             return out.toLowerCase().includes('code.exe')
-        } else {
-            const out = execSync('ps -eo args', {
-                stdio: ['ignore', 'pipe', 'ignore'],
-                shell: true,
-            }).toString()
-            return out.split('\n').some(line => {
-                const t = line.trim()
-                if (
-                    !/^\/usr\/share\/code\/code(\s|$)|^\/usr\/bin\/code(\s|$)/.test(
-                        t
-                    )
-                )
-                    return false
-                if (/--type=|chrome_crashpad_handler/.test(t)) return false
-                return true
-            })
         }
+        execSync('pidof code', { stdio: 'ignore' })
+        return true
     } catch {
         return false
     }
 }
 
-// ── Read active project from VS Code's storage.json ──────────────────────────
-function getActiveProject() {
+// ── Read all open VS Code projects from storage.json ─────────────────────────
+function getOpenProjects() {
+    if (!isVSCodeRunning()) return []
+
     try {
         const raw = fs.readFileSync(VSCODE_STORAGE, 'utf8')
         const data = JSON.parse(raw)
 
-        // VS Code stores last active workspace/folder here
-        const entry =
-            data?.windowsState?.lastActiveWindow?.folder ||
-            data?.windowsState?.lastActiveWindow?.workspace?.configPath ||
-            data?.windowsState?.openedWindows?.[0]?.folder ||
-            null
+        // Multi-window: openedWindows lists all open windows
+        const windows = data?.windowsState?.openedWindows || []
+        if (windows.length > 0) {
+            return windows.map(w => {
+                const entry = w.folder || w.workspace?.configPath || null
+                if (!entry) return null
+                const decoded = decodeURIComponent(entry.replace('file://', ''))
+                return path.basename(decoded) || decoded
+            }).filter(Boolean)
+        }
 
-        if (!entry) return 'unknown'
-
-        // entry is a URI like "file:///home/user/projects/my-app"
+        // Single window: lastActiveWindow has the active folder
+        const entry = data?.windowsState?.lastActiveWindow?.folder || null
+        if (!entry) return []
         const decoded = decodeURIComponent(entry.replace('file://', ''))
-        return path.basename(decoded) || decoded
+        return [path.basename(decoded) || decoded]
     } catch {
-        return 'unknown'
+        return []
     }
 }
 
@@ -105,20 +97,25 @@ function flushSegment(sessions, start, project) {
 
 // ── Tracking loop ─────────────────────────────────────────────────────────────
 function startTracking() {
-    let segmentStart = null
-    let currentProject = null
-    let wasRunning = false
+    let activeSegments = {}
+    let prevProjects = []
 
-    console.log('VS Code Time Tracker started (with project tracking).')
+    console.log('VS Code Time Tracker started (multi-window support).')
     console.log(
         `Polling every ${POLL_INTERVAL_MS / 1000}s — press Ctrl+C to stop.\n`
     )
 
     function shutdown() {
-        if (segmentStart) {
-            const sessions = loadSessions()
-            flushSegment(sessions, segmentStart, currentProject)
-            console.log('\nOpen segment saved. Goodbye.')
+        const sessions = loadSessions()
+        const entries = Object.entries(activeSegments)
+        if (entries.length > 0) {
+            for (const [project, start] of entries) {
+                flushSegment(sessions, start, project)
+                console.log(
+                    `[${fmt(new Date().toISOString())}] Closed — ${project}: ${duration(start, new Date().toISOString())}`
+                )
+            }
+            console.log('\nOpen segments saved. Goodbye.')
         }
         process.exit(0)
     }
@@ -126,39 +123,31 @@ function startTracking() {
     process.on('SIGTERM', shutdown)
 
     function tick() {
-        const running = isVSCodeRunning()
+        const projects = getOpenProjects()
 
-        if (running && !wasRunning) {
-            // VS Code just opened
-            segmentStart = new Date().toISOString()
-            currentProject = getActiveProject()
-            console.log(
-                `[${fmt(segmentStart)}] Opened — project: ${currentProject}`
-            )
-        } else if (running && wasRunning) {
-            // VS Code still open — check for project switch
-            const project = getActiveProject()
-            if (project !== currentProject && segmentStart) {
-                const sessions = loadSessions()
-                const end = flushSegment(sessions, segmentStart, currentProject)
+        // Detect newly opened projects
+        for (const p of projects) {
+            if (!prevProjects.includes(p)) {
+                activeSegments[p] = new Date().toISOString()
                 console.log(
-                    `[${fmt(end)}] Switched: ${currentProject} → ${project} (${duration(segmentStart, end)})`
+                    `[${fmt(activeSegments[p])}] Opened — project: ${p}`
                 )
-                segmentStart = new Date().toISOString()
-                currentProject = project
             }
-        } else if (!running && wasRunning && segmentStart) {
-            // VS Code just closed
-            const sessions = loadSessions()
-            const end = flushSegment(sessions, segmentStart, currentProject)
-            console.log(
-                `[${fmt(end)}] Closed — ${currentProject}: ${duration(segmentStart, end)}`
-            )
-            segmentStart = null
-            currentProject = null
         }
 
-        wasRunning = running
+        // Detect closed projects
+        for (const p of Object.keys(activeSegments)) {
+            if (!projects.includes(p)) {
+                const sessions = loadSessions()
+                const end = flushSegment(sessions, activeSegments[p], p)
+                console.log(
+                    `[${fmt(end)}] Closed — ${p}: ${duration(activeSegments[p], end)}`
+                )
+                delete activeSegments[p]
+            }
+        }
+
+        prevProjects = projects
     }
 
     tick()
