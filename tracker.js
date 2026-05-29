@@ -2,25 +2,33 @@
 
 /**
  * VS Code Time Tracker
- * Tracks time from when VS Code is open to when it's closed.
+ * Tracks time per project by reading VS Code's active workspace from storage.json.
+ * Detects project switches mid-session and logs each separately.
  * Zero npm dependencies. Minimal RAM usage.
  *
  * Usage:
- *   node tracker.js          → start tracking (runs in background)
- *   node tracker.js report   → show daily & weekly totals
- *   node tracker.js report --full → show all sessions ever
+ *   node tracker.js            → start tracking
+ *   node tracker.js report     → this week: hours per project + total
+ *   node tracker.js report --full → all-time report
  */
 
 const { execSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
+const os = require('os')
 
-// ─── Config ────────────────────────────────────────────────────────────────
+// ─── Config ─────────────────────────────────────────────────────────────────
 const LOG_FILE = path.join(__dirname, 'vscode-sessions.json')
-const POLL_INTERVAL_MS = 10_000 // check every 10 seconds (light on CPU)
-// ───────────────────────────────────────────────────────────────────────────
+const POLL_INTERVAL_MS = 10_000 // every 10 seconds
 
-// ── Detect OS and check if VS Code main window process is running ───────────
+// VS Code's storage.json — tracks recently active workspace
+const VSCODE_STORAGE = path.join(
+    os.homedir(),
+    '.config/Code/User/globalStorage/storage.json'
+)
+// ────────────────────────────────────────────────────────────────────────────
+
+// ── Check if VS Code main window is running ──────────────────────────────────
 function isVSCodeRunning() {
     try {
         if (process.platform === 'win32') {
@@ -29,47 +37,51 @@ function isVSCodeRunning() {
             }).toString()
             return out.toLowerCase().includes('code.exe')
         } else {
-            // Linux/macOS: look for the main VS Code window process only.
-            // The main process has --type=... absent (no --type flag),
-            // while helper processes (renderer, GPU, extension-host) all have --type=xxx.
-            // We use ps to read full command lines and filter accordingly.
             const out = execSync('ps -eo args', {
                 stdio: ['ignore', 'pipe', 'ignore'],
                 shell: true,
             }).toString()
-
-            const lines = out.split('\n')
-            const mainProcess = lines.find(line => {
-                const trimmed = line.trim()
-
-                // Must start with the exact code binary path (main process only)
-                const isMainBinary =
-                    /^\/usr\/share\/code\/code(\s|$)/.test(trimmed) ||
-                    /^\/usr\/bin\/code(\s|$)/.test(trimmed)
-                if (!isMainBinary) return false
-
-                // Must NOT be a helper process
-                if (/--type=/.test(trimmed)) return false
-
-                // Must NOT be crashpad or other known sub-processes
+            return out.split('\n').some(line => {
+                const t = line.trim()
                 if (
-                    /chrome_crashpad_handler|--crash-reporter|--extension-host/.test(
-                        trimmed
+                    !/^\/usr\/share\/code\/code(\s|$)|^\/usr\/bin\/code(\s|$)/.test(
+                        t
                     )
                 )
                     return false
-
+                if (/--type=|chrome_crashpad_handler/.test(t)) return false
                 return true
             })
-
-            return !!mainProcess
         }
     } catch {
         return false
     }
 }
 
-// ── Load / save sessions ────────────────────────────────────────────────────
+// ── Read active project from VS Code's storage.json ──────────────────────────
+function getActiveProject() {
+    try {
+        const raw = fs.readFileSync(VSCODE_STORAGE, 'utf8')
+        const data = JSON.parse(raw)
+
+        // VS Code stores last active workspace/folder here
+        const entry =
+            data?.windowsState?.lastActiveWindow?.folder ||
+            data?.windowsState?.lastActiveWindow?.workspace?.configPath ||
+            data?.windowsState?.openedWindows?.[0]?.folder ||
+            null
+
+        if (!entry) return 'unknown'
+
+        // entry is a URI like "file:///home/user/projects/my-app"
+        const decoded = decodeURIComponent(entry.replace('file://', ''))
+        return path.basename(decoded) || decoded
+    } catch {
+        return 'unknown'
+    }
+}
+
+// ── Load / save sessions ─────────────────────────────────────────────────────
 function loadSessions() {
     if (!fs.existsSync(LOG_FILE)) return []
     try {
@@ -83,26 +95,30 @@ function saveSessions(sessions) {
     fs.writeFileSync(LOG_FILE, JSON.stringify(sessions, null, 2))
 }
 
-// ── Tracking loop ───────────────────────────────────────────────────────────
+// ── Flush current segment to disk ────────────────────────────────────────────
+function flushSegment(sessions, start, project) {
+    const end = new Date().toISOString()
+    sessions.push({ project, start, end })
+    saveSessions(sessions)
+    return end
+}
+
+// ── Tracking loop ─────────────────────────────────────────────────────────────
 function startTracking() {
-    let sessionStart = null
+    let segmentStart = null
+    let currentProject = null
     let wasRunning = false
 
-    console.log('VS Code Time Tracker started.')
+    console.log('VS Code Time Tracker started (with project tracking).')
     console.log(
         `Polling every ${POLL_INTERVAL_MS / 1000}s — press Ctrl+C to stop.\n`
     )
 
-    // Handle graceful shutdown: close open session on exit
     function shutdown() {
-        if (sessionStart) {
+        if (segmentStart) {
             const sessions = loadSessions()
-            sessions.push({
-                start: sessionStart,
-                end: new Date().toISOString(),
-            })
-            saveSessions(sessions)
-            console.log('\nOpen session saved. Goodbye.')
+            flushSegment(sessions, segmentStart, currentProject)
+            console.log('\nOpen segment saved. Goodbye.')
         }
         process.exit(0)
     }
@@ -114,29 +130,42 @@ function startTracking() {
 
         if (running && !wasRunning) {
             // VS Code just opened
-            sessionStart = new Date().toISOString()
+            segmentStart = new Date().toISOString()
+            currentProject = getActiveProject()
             console.log(
-                `[${fmt(sessionStart)}] VS Code opened — session started.`
+                `[${fmt(segmentStart)}] Opened — project: ${currentProject}`
             )
-        } else if (!running && wasRunning && sessionStart) {
+        } else if (running && wasRunning) {
+            // VS Code still open — check for project switch
+            const project = getActiveProject()
+            if (project !== currentProject && segmentStart) {
+                const sessions = loadSessions()
+                const end = flushSegment(sessions, segmentStart, currentProject)
+                console.log(
+                    `[${fmt(end)}] Switched: ${currentProject} → ${project} (${duration(segmentStart, end)})`
+                )
+                segmentStart = new Date().toISOString()
+                currentProject = project
+            }
+        } else if (!running && wasRunning && segmentStart) {
             // VS Code just closed
-            const end = new Date().toISOString()
             const sessions = loadSessions()
-            sessions.push({ start: sessionStart, end })
-            saveSessions(sessions)
-            const dur = duration(sessionStart, end)
-            console.log(`[${fmt(end)}] VS Code closed — session: ${dur}`)
-            sessionStart = null
+            const end = flushSegment(sessions, segmentStart, currentProject)
+            console.log(
+                `[${fmt(end)}] Closed — ${currentProject}: ${duration(segmentStart, end)}`
+            )
+            segmentStart = null
+            currentProject = null
         }
 
         wasRunning = running
     }
 
-    tick() // run immediately on start
+    tick()
     setInterval(tick, POLL_INTERVAL_MS)
 }
 
-// ── Report ──────────────────────────────────────────────────────────────────
+// ── Report ────────────────────────────────────────────────────────────────────
 function showReport(full = false) {
     const sessions = loadSessions()
     if (sessions.length === 0) {
@@ -151,65 +180,82 @@ function showReport(full = false) {
         now.getDate()
     )
     const startOfWeek = new Date(startOfToday)
-    startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay()) // Sunday
+    startOfWeek.setDate(startOfToday.getDate() - startOfToday.getDay())
 
-    // Group sessions by day
-    const byDay = {}
-    for (const s of sessions) {
-        const day = s.start.slice(0, 10) // "YYYY-MM-DD"
-        if (!byDay[day]) byDay[day] = []
-        byDay[day].push(s)
-    }
+    const filtered = full
+        ? sessions
+        : sessions.filter(s => new Date(s.start) >= startOfWeek)
 
-    const sortedDays = Object.keys(byDay).sort()
-    const daysToShow = full
-        ? sortedDays
-        : sortedDays.filter(d => new Date(d) >= startOfWeek)
-
-    if (daysToShow.length === 0) {
+    if (filtered.length === 0) {
         console.log('No sessions this week. Use --full to see all history.')
         return
     }
 
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log(
-        '  VS Code Time Report' + (full ? ' (All Time)' : ' (This Week)')
-    )
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n')
+    // Group by day
+    const byDay = {}
+    for (const s of filtered) {
+        const day = s.start.slice(0, 10)
+        if (!byDay[day]) byDay[day] = []
+        byDay[day].push(s)
+    }
 
-    let weekTotal = 0
+    // Tally per project across all filtered sessions
+    const projectTotals = {}
+    for (const s of filtered) {
+        const ms = new Date(s.end) - new Date(s.start)
+        projectTotals[s.project] = (projectTotals[s.project] || 0) + ms
+    }
 
-    for (const day of daysToShow) {
+    const W = 50
+    const line = '━'.repeat(W)
+
+    console.log(`\n${line}`)
+    console.log(`  VS Code Time Report${full ? ' (All Time)' : ' (This Week)'}`)
+    console.log(`${line}\n`)
+
+    let grandTotal = 0
+
+    for (const day of Object.keys(byDay).sort()) {
         const daySessions = byDay[day]
         let dayTotal = 0
-
         console.log(`  📅 ${formatDate(day)}`)
+
         for (const s of daySessions) {
             const ms = new Date(s.end) - new Date(s.start)
             dayTotal += ms
-            const startTime = new Date(s.start).toLocaleTimeString([], {
+            const t1 = new Date(s.start).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
             })
-            const endTime = new Date(s.end).toLocaleTimeString([], {
+            const t2 = new Date(s.end).toLocaleTimeString([], {
                 hour: '2-digit',
                 minute: '2-digit',
             })
-            console.log(`     ${startTime} → ${endTime}   (${msToHuman(ms)})`)
+            console.log(
+                `     [${s.project}]  ${t1} → ${t2}  (${msToHuman(ms)})`
+            )
         }
 
-        weekTotal += dayTotal
-        console.log(`     Total: ${msToHuman(dayTotal)}\n`)
+        grandTotal += dayTotal
+        console.log(`     Day total: ${msToHuman(dayTotal)}\n`)
     }
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log(
-        `  ${full ? 'All-time' : 'Week'} total: ${msToHuman(weekTotal)}`
-    )
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n')
+    // Per-project summary
+    console.log(`${line}`)
+    console.log(`  Project breakdown`)
+    console.log(`${'─'.repeat(W)}`)
+    for (const [proj, ms] of Object.entries(projectTotals).sort(
+        (a, b) => b[1] - a[1]
+    )) {
+        const bar = '█'.repeat(Math.round((ms / grandTotal) * 20))
+        console.log(`  ${proj.padEnd(20)} ${msToHuman(ms).padStart(8)}  ${bar}`)
+    }
+    console.log(`${line}`)
+    console.log(`  ${'TOTAL'.padEnd(20)} ${msToHuman(grandTotal).padStart(8)}`)
+    console.log(`${line}\n`)
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function duration(start, end) {
     return msToHuman(new Date(end) - new Date(start))
 }
@@ -218,8 +264,7 @@ function msToHuman(ms) {
     const totalMins = Math.floor(ms / 60000)
     const h = Math.floor(totalMins / 60)
     const m = totalMins % 60
-    if (h === 0) return `${m}m`
-    return `${h}h ${m}m`
+    return h === 0 ? `${m}m` : `${h}h ${m}m`
 }
 
 function fmt(iso) {
@@ -238,7 +283,7 @@ function formatDate(dateStr) {
     })
 }
 
-// ── Entry point ──────────────────────────────────────────────────────────────
+// ── Entry point ───────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
 if (args[0] === 'report') {
     showReport(args.includes('--full'))
