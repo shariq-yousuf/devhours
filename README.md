@@ -72,15 +72,57 @@ Sessions are stored locally in `vscode-sessions.json` next to the script. Nothin
 
 ---
 
-## Run on system startup (Linux)
+## Run on system startup (Linux) — systemd service
 
-Add this to your `~/.bashrc` or `~/.profile` to auto-start the tracker when you log in:
+Start the tracker automatically as a background daemon with systemd.
 
-```bash
-node /path/to/tracker.js &
-```
+1. **Make the script executable** (one-time):
+   ```bash
+   chmod +x /path/to/devhours/tracker.js
+   ```
 
-Or create a systemd service for a cleaner background process.
+2. **Create a service file** at `/etc/systemd/system/devhours.service`:
+   ```ini
+   [Unit]
+   Description=VS Code Time Tracker (devhours)
+   After=network.target
+
+   [Service]
+   ExecStart=/usr/local/bin/node /path/to/devhours/tracker.js
+   Restart=on-failure
+   RestartSec=5
+   User=<YOUR_USERNAME>
+
+   [Install]
+   WantedBy=default.target
+   ```
+   Replace `<YOUR_USERNAME>` with your actual username (run `whoami`).  
+   **Important**: systemd doesn't use your shell's PATH. If Node is installed via nvm, find the full path with `which node` and use it in `ExecStart`.
+
+3. **Enable and start the service**:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable devhours.service
+   sudo systemctl start devhours.service
+   ```
+
+4. **Check status**:
+   ```bash
+   sudo systemctl status devhours.service
+   ```
+
+5. **View logs**:
+   ```bash
+   sudo journalctl -u devhours.service -f
+   ```
+
+6. **Stop / disable later**:
+   ```bash
+   sudo systemctl stop devhours.service
+   sudo systemctl disable devhours.service
+   ```
+
+The service will auto-start on boot, survive logout, and restart on failure.
 
 ---
 
