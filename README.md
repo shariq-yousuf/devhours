@@ -26,16 +26,19 @@ Built for freelancers and developers who bill by the hour and want accurate time
 ## Usage
 
 **Start tracking**
+
 ```bash
 node tracker.js
 ```
 
 **This week's report**
+
 ```bash
 node tracker.js report
 ```
 
 **All-time report**
+
 ```bash
 node tracker.js report --full
 ```
@@ -77,47 +80,76 @@ Sessions are stored locally in `vscode-sessions.json` next to the script. Nothin
 Start the tracker automatically as a background daemon with systemd.
 
 1. **Create a service file** at `/etc/systemd/system/devhours.service`:
-   ```ini
-   [Unit]
-   Description=VS Code Time Tracker (devhours)
-   After=network.target
 
-   [Service]
-   ExecStart=/usr/local/bin/node /path/to/devhours/tracker.js
-   Restart=on-failure
-   RestartSec=5
-   User=<YOUR_USERNAME>
+    ```ini
+    [Unit]
+    Description=VS Code Time Tracker (devhours)
+    After=network.target
 
-   [Install]
-   WantedBy=default.target
-   ```
-   Replace `<YOUR_USERNAME>` with your actual username (run `whoami`).  
-   **Important**: systemd doesn't use your shell's PATH. If Node is installed via nvm, find the full path with `which node` and use it in `ExecStart`.
+    [Service]
+    ExecStart=/usr/local/bin/node /path/to/devhours/tracker.js
+    Restart=on-failure
+    RestartSec=5
+    User=<YOUR_USERNAME>
+
+    [Install]
+    WantedBy=default.target
+    ```
+
+    Replace `<YOUR_USERNAME>` with your actual username (run `whoami`).  
+    **Important**: systemd doesn't use your shell's PATH. If Node is installed via nvm, find the full path with `which node` and use it in `ExecStart`.
 
 2. **Enable and start the service**:
-   ```bash
-   sudo systemctl daemon-reload
-   sudo systemctl enable devhours.service
-   sudo systemctl start devhours.service
-   ```
+
+    ```bash
+    sudo systemctl daemon-reload
+    sudo systemctl enable devhours.service
+    sudo systemctl start devhours.service
+    ```
 
 3. **Check status**:
-   ```bash
-   sudo systemctl status devhours.service
-   ```
+
+    ```bash
+    sudo systemctl status devhours.service
+    ```
 
 4. **View logs**:
-   ```bash
-   sudo journalctl -u devhours.service -f
-   ```
+
+    ```bash
+    sudo journalctl -u devhours.service -f
+    ```
 
 5. **Stop / disable later**:
-   ```bash
-   sudo systemctl stop devhours.service
-   sudo systemctl disable devhours.service
-   ```
+    ```bash
+    sudo systemctl stop devhours.service
+    sudo systemctl disable devhours.service
+    ```
 
 The service will auto-start on boot, survive logout, and restart on failure.
+
+---
+
+## Global command
+
+Create a wrapper script at `~/.local/bin/dhr` so you can run reports from anywhere:
+
+```bash
+#!/bin/bash
+exec node /path/to/devhours/tracker.js report "$@"
+```
+
+Make it executable:
+
+```bash
+chmod +x ~/.local/bin/dhr
+```
+
+Now from any terminal:
+
+```bash
+dhr          # same as tracker.js report
+dhr --full   # all-time report
+```
 
 ---
 
