@@ -340,7 +340,8 @@ const args = process.argv.slice(2)
 if (args[0] === 'report') {
     showReport(args.includes('--full'))
 } else if (args[0] === 'reset') {
-    const idx = args.indexOf('--project')
+    let idx = args.indexOf('--project')
+    if (idx === -1) idx = args.indexOf('-p')
     const project = idx !== -1 ? args[idx + 1] : null
     confirmReset(project)
 } else {

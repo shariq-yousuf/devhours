@@ -50,6 +50,7 @@ A confirmation prompt will appear before any data is archived.
 ```bash
 node tracker.js reset                          # archive all sessions
 node tracker.js reset --project my-app         # archive only one project
+node tracker.js reset -p my-app                # same, shorter flag
 ```
 
 Full archives go to `backups/<timestamp>.json`. Per-project archives go to `backups/<project>/<timestamp>.json`.
@@ -173,7 +174,8 @@ dh                     # start tracking
 dh report              # this week's report
 dh report --full       # all-time report
 dh reset               # archive all sessions (prompts for confirmation)
-dh reset --project foo # archive only one project (prompts for confirmation)
+dh reset --project foo  # archive only one project (prompts for confirmation)
+dh reset -p foo         # same, shorter flag
 ```
 
 ---
