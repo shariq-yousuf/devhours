@@ -270,10 +270,48 @@ function formatDate(dateStr) {
     })
 }
 
+// ── Reset ──────────────────────────────────────────────────────────────────────
+function resetSessions(targetProject) {
+    const sessions = loadSessions()
+    if (sessions.length === 0) {
+        console.log('No sessions to reset.')
+        return
+    }
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+
+    if (targetProject) {
+        const removed = sessions.filter(s => s.project === targetProject)
+        const kept = sessions.filter(s => s.project !== targetProject)
+        if (removed.length === 0) {
+            console.log(`No sessions found for project "${targetProject}".`)
+            return
+        }
+        const backup = path.join(
+            __dirname,
+            `vscode-sessions-${targetProject}-${ts}.json`
+        )
+        fs.writeFileSync(backup, JSON.stringify(removed, null, 2))
+        saveSessions(kept)
+        console.log(
+            `Archived ${removed.length} session(s) for "${targetProject}" → ${path.basename(backup)}`
+        )
+    } else {
+        const backup = path.join(__dirname, `vscode-sessions-${ts}.json`)
+        fs.renameSync(LOG_FILE, backup)
+        saveSessions([])
+        console.log(`All sessions archived → ${path.basename(backup)}`)
+    }
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 const args = process.argv.slice(2)
 if (args[0] === 'report') {
     showReport(args.includes('--full'))
+} else if (args[0] === 'reset') {
+    const idx = args.indexOf('--project')
+    const project = idx !== -1 ? args[idx + 1] : null
+    resetSessions(project)
 } else {
     startTracking()
 }

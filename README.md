@@ -43,6 +43,15 @@ node tracker.js report
 node tracker.js report --full
 ```
 
+**Reset billing period** (archive sessions so tracking starts fresh)
+
+```bash
+node tracker.js reset                          # archive all sessions
+node tracker.js reset --project my-app         # archive only one project
+```
+
+Archived files are saved as `vscode-sessions-<timestamp>.json` or `vscode-sessions-<project>-<timestamp>.json`.
+
 ---
 
 ## Sample report
@@ -131,24 +140,27 @@ The service will auto-start on boot, survive logout, and restart on failure.
 
 ## Global command
 
-Create a wrapper script at `~/.local/bin/dhr` so you can run reports from anywhere:
+Create a wrapper script at `~/.local/bin/dh` so you can run commands from anywhere:
 
 ```bash
 #!/bin/bash
-exec node /path/to/devhours/tracker.js report "$@"
+exec node /path/to/devhours/tracker.js "$@"
 ```
 
 Make it executable:
 
 ```bash
-chmod +x ~/.local/bin/dhr
+chmod +x ~/.local/bin/dh
 ```
 
 Now from any terminal:
 
 ```bash
-dhr          # same as tracker.js report
-dhr --full   # all-time report
+dh                     # start tracking
+dh report              # this week's report
+dh report --full       # all-time report
+dh reset               # archive all sessions
+dh reset --project foo # archive only one project
 ```
 
 ---
