@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * VS Code Time Tracker
  * Tracks time per project by reading VS Code's active workspace from storage.json.

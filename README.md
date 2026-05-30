@@ -76,12 +76,7 @@ Sessions are stored locally in `vscode-sessions.json` next to the script. Nothin
 
 Start the tracker automatically as a background daemon with systemd.
 
-1. **Make the script executable** (one-time):
-   ```bash
-   chmod +x /path/to/devhours/tracker.js
-   ```
-
-2. **Create a service file** at `/etc/systemd/system/devhours.service`:
+1. **Create a service file** at `/etc/systemd/system/devhours.service`:
    ```ini
    [Unit]
    Description=VS Code Time Tracker (devhours)
@@ -99,24 +94,24 @@ Start the tracker automatically as a background daemon with systemd.
    Replace `<YOUR_USERNAME>` with your actual username (run `whoami`).  
    **Important**: systemd doesn't use your shell's PATH. If Node is installed via nvm, find the full path with `which node` and use it in `ExecStart`.
 
-3. **Enable and start the service**:
+2. **Enable and start the service**:
    ```bash
    sudo systemctl daemon-reload
    sudo systemctl enable devhours.service
    sudo systemctl start devhours.service
    ```
 
-4. **Check status**:
+3. **Check status**:
    ```bash
    sudo systemctl status devhours.service
    ```
 
-5. **View logs**:
+4. **View logs**:
    ```bash
    sudo journalctl -u devhours.service -f
    ```
 
-6. **Stop / disable later**:
+5. **Stop / disable later**:
    ```bash
    sudo systemctl stop devhours.service
    sudo systemctl disable devhours.service
