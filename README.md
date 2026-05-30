@@ -12,7 +12,7 @@ Built for freelancers and developers who bill by the hour and want accurate time
 - Detects when VS Code opens and closes
 - Reads VS Code's internal `storage.json` to know which project is active
 - Detects project switches mid-session and logs each separately
-- Saves everything to a local `vscode-sessions.json` file
+- Saves everything to `data/vscode-sessions.json`
 
 ---
 
@@ -52,7 +52,7 @@ node tracker.js reset                          # archive all sessions
 node tracker.js reset --project my-app         # archive only one project
 ```
 
-Archived files are saved as `vscode-sessions-<timestamp>.json` or `vscode-sessions-<project>-<timestamp>.json`.
+Full archives go to `backups/<timestamp>.json`. Per-project archives go to `backups/<project>/<timestamp>.json`.
 
 ---
 
@@ -82,7 +82,18 @@ Archived files are saved as `vscode-sessions-<timestamp>.json` or `vscode-sessio
 
 ## Data
 
-Sessions are stored locally in `vscode-sessions.json` next to the script. Nothing is sent anywhere.
+```
+devhours/
+├── tracker.js
+├── data/
+│   └── vscode-sessions.json      ← active sessions
+└── backups/
+    ├── 2026-05-30_02-59-06.json  ← full archive
+    └── my-app/
+        └── 2026-05-30_03-00-00.json  ← per-project archive
+```
+
+Nothing is sent anywhere.
 
 ---
 

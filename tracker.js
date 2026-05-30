@@ -16,7 +16,9 @@ const path = require('path')
 const os = require('os')
 
 // ─── Config ─────────────────────────────────────────────────────────────────
-const LOG_FILE = path.join(__dirname, 'vscode-sessions.json')
+const DATA_DIR = path.join(__dirname, 'data')
+const BACKUPS_DIR = path.join(__dirname, 'backups')
+const LOG_FILE = path.join(DATA_DIR, 'vscode-sessions.json')
 const POLL_INTERVAL_MS = 10_000 // every 10 seconds
 
 // VS Code's storage.json — tracks recently active workspace
@@ -270,6 +272,11 @@ function formatDate(dateStr) {
     })
 }
 
+function ts() {
+    const raw = new Date().toISOString()
+    return raw.split('.')[0].replace('T', '_').replace(/:/g, '-')
+}
+
 // ── Reset ──────────────────────────────────────────────────────────────────────
 function confirmReset(project) {
     const readline = require('readline')
@@ -299,7 +306,7 @@ function resetSessions(targetProject) {
         return
     }
 
-    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const stamp = ts()
 
     if (targetProject) {
         const removed = sessions.filter(s => s.project === targetProject)
@@ -308,20 +315,20 @@ function resetSessions(targetProject) {
             console.log(`No sessions found for project "${targetProject}".`)
             return
         }
-        const backup = path.join(
-            __dirname,
-            `vscode-sessions-${targetProject}-${ts}.json`
-        )
+        const dir = path.join(BACKUPS_DIR, targetProject)
+        fs.mkdirSync(dir, { recursive: true })
+        const backup = path.join(dir, `${stamp}.json`)
         fs.writeFileSync(backup, JSON.stringify(removed, null, 2))
         saveSessions(kept)
         console.log(
-            `Archived ${removed.length} session(s) for "${targetProject}" → ${path.basename(backup)}`
+            `Archived ${removed.length} session(s) for "${targetProject}" → backups/${targetProject}/${stamp}.json`
         )
     } else {
-        const backup = path.join(__dirname, `vscode-sessions-${ts}.json`)
+        fs.mkdirSync(BACKUPS_DIR, { recursive: true })
+        const backup = path.join(BACKUPS_DIR, `${stamp}.json`)
         fs.renameSync(LOG_FILE, backup)
         saveSessions([])
-        console.log(`All sessions archived → ${path.basename(backup)}`)
+        console.log(`All sessions archived → backups/${stamp}.json`)
     }
 }
 
