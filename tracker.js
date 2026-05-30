@@ -271,6 +271,27 @@ function formatDate(dateStr) {
 }
 
 // ── Reset ──────────────────────────────────────────────────────────────────────
+function confirmReset(project) {
+    const readline = require('readline')
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    })
+
+    const msg = project
+        ? `Archive ALL sessions for project "${project}"? This cannot be undone.`
+        : `Archive ALL sessions? This cannot be undone.`
+
+    rl.question(`${msg} (y/N) `, answer => {
+        rl.close()
+        if (answer.toLowerCase() === 'y') {
+            resetSessions(project)
+        } else {
+            console.log('Reset cancelled.')
+        }
+    })
+}
+
 function resetSessions(targetProject) {
     const sessions = loadSessions()
     if (sessions.length === 0) {
@@ -311,7 +332,7 @@ if (args[0] === 'report') {
 } else if (args[0] === 'reset') {
     const idx = args.indexOf('--project')
     const project = idx !== -1 ? args[idx + 1] : null
-    resetSessions(project)
+    confirmReset(project)
 } else {
     startTracking()
 }

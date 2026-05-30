@@ -45,6 +45,8 @@ node tracker.js report --full
 
 **Reset billing period** (archive sessions so tracking starts fresh)
 
+A confirmation prompt will appear before any data is archived.
+
 ```bash
 node tracker.js reset                          # archive all sessions
 node tracker.js reset --project my-app         # archive only one project
@@ -159,8 +161,8 @@ Now from any terminal:
 dh                     # start tracking
 dh report              # this week's report
 dh report --full       # all-time report
-dh reset               # archive all sessions
-dh reset --project foo # archive only one project
+dh reset               # archive all sessions (prompts for confirmation)
+dh reset --project foo # archive only one project (prompts for confirmation)
 ```
 
 ---
