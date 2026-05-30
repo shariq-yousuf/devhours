@@ -28,6 +28,9 @@ const VSCODE_STORAGE = path.join(
 )
 // ────────────────────────────────────────────────────────────────────────────
 
+fs.mkdirSync(DATA_DIR, { recursive: true })
+fs.mkdirSync(BACKUPS_DIR, { recursive: true })
+
 // ── Lightweight check: is VS Code running? ────────────────────────────────────
 function isVSCodeRunning() {
     try {
